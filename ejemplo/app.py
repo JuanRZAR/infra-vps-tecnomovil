@@ -8,7 +8,7 @@ class Manejador(BaseHTTPRequestHandler):
         if self.path == "/health":
             cuerpo = {"status": "ok"}
         elif self.path == "/":
-            cuerpo = {"proyecto": "ejemplo", "mensaje": "El VPS funciona"}
+            cuerpo = {"proyecto": "ejemplo", "mensaje": "El VPS funciona v2"}
         else:
             self.send_error(404)
             return
