@@ -1,0 +1,19 @@
+# Registro de proyectos del VPS. Cada proyecto se añade con un PR (guia/03-subir-proyecto.md, 3.2).
+# Puertos: el proyecto número N usa 81N1 y 81N2 (azul y verde). La imagen es ghcr.io/<repo en minúsculas>:<sha>.
+#
+# <proyecto>:                      minúsculas, números y -
+#   dueno: <usuario del VPS>
+#   repo: <cuenta>/<repositorio>
+#   dominios: { web: <dominio>, api: <dominio> }   cualquiera de los dos es opcional
+#   puertos: [81N1, 81N2]          solo si tiene API (contenedor)
+#   base: postgres                 postgres (compartido) | propia | ninguna
+#   bd: <nombre>                   opcional: base y usuario en Postgres (minúsculas, números y _); por defecto, el proyecto
+#   salud: /health                 opcional: ruta de salud de la API
+
+dawertech:
+  dueno: ochy
+  repo: gochoag/DawerTech
+  dominios: { web: dawer.cfd, api: api.dawer.cfd }
+  puertos: [8101, 8102]
+  base: postgres
+  bd: dawertechbd

@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Valida compose.yml (y servicios.yml) con las reglas del VPS (guia/02-preparar-proyecto.md, 2.2).
+
+Uso: vps-check <compose.yml> <proyecto> [servicios.yml]
+Sale con 0 si todo cumple; con 1 y una lista de errores si no.
+"""
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("Falta PyYAML: sudo apt install python3-yaml  (o pip install pyyaml)")
+
+PROHIBIDAS = [
+    "privileged", "network_mode", "pid", "ipc", "uts", "userns_mode", "cap_add", "devices",
+    "device_cgroup_rules", "cgroup_parent", "build", "extends", "volumes_from", "container_name",
+]
+SECRETO = re.compile(r"PASS|SECRET|TOKEN|KEY|CLAVE", re.I)
+PUERTO = re.compile(r"127\.0\.0\.1:\$\{HOST_PORT\}:\d+(/tcp)?")
+
+
+def cargar(ruta, errores):
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            datos = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError) as e:
+        errores.append(f"{ruta}: no se puede leer como YAML ({e})")
+        return {}
+    if not isinstance(datos, dict) or not isinstance(datos.get("services"), dict):
+        errores.append(f"{ruta}: debe tener una sección services")
+        return {}
+    return datos
+
+
+def lista(valor):
+    if valor is None:
+        return []
+    return valor if isinstance(valor, list) else [valor]
+
+
+def revisar(datos, p, archivo, errores, principal):
+    datos_dir = (f"/srv/apps/${{PROYECTO}}/data/", f"/srv/apps/{p}/data/")
+    env_ok = (f"/srv/apps/${{PROYECTO}}/.env", f"/srv/apps/{p}/.env")
+    redes_ok = {"infra", "${PROYECTO}-red", f"{p}-red"}
+    err = lambda msg: errores.append(f"{archivo}: {msg}")
+
+    for clave in datos:
+        if clave not in ("services", "networks") and not str(clave).startswith("x-"):
+            err(f"sección «{clave}» no permitida (solo services y networks; los datos van en data/)")
+
+    redes = datos.get("networks") or {}
+    for nombre, red in redes.items():
+        red = red or {}
+        if not red.get("external"):
+            err(f"la red «{nombre}» debe ser external: true")
+        if red.get("name", nombre) not in redes_ok:
+            err(f"la red «{nombre}» solo puede ser infra o ${{PROYECTO}}-red (regla 8)")
+
+    servicios = datos.get("services") or {}
+    if principal and "app" not in servicios:
+        err("falta el servicio «app» (regla 1)")
+
+    for nombre, s in servicios.items():
+        s = s or {}
+        e = lambda msg: err(f"servicio «{nombre}»: {msg}")
+        perfiles = lista(s.get("profiles"))
+
+        for clave in PROHIBIDAS:
+            if clave in s:
+                e(f"«{clave}» está prohibido (regla 5 o 1)")
+        for opcion in lista(s.get("security_opt")):
+            if "unconfined" in str(opcion) or "disable" in str(opcion):
+                e(f"security_opt «{opcion}» está prohibido (regla 5)")
+
+        if principal:
+            if s.get("image") != "${IMAGE}":
+                e("debe usar image: ${IMAGE} (regla 1)")
+            if str(s.get("user", "")) != "10001:10001":
+                e('debe tener user: "10001:10001" (regla 4)')
+        if nombre == "migrate" and perfiles != ["migrate"]:
+            e('debe tener profiles: ["migrate"]')
+        if not perfiles and s.get("restart") != "unless-stopped":
+            e("debe tener restart: unless-stopped (regla 3)")
+
+        puertos = lista(s.get("ports"))
+        if principal and nombre == "app":
+            if len(puertos) != 1 or not isinstance(puertos[0], str) or not PUERTO.fullmatch(puertos[0]):
+                e('único puerto permitido: "127.0.0.1:${HOST_PORT}:<puerto interno>" (regla 2)')
+            prueba = (s.get("healthcheck") or {})
+            if not prueba.get("test") or prueba.get("disable"):
+                e("debe tener healthcheck con test (regla 3)")
+        elif puertos:
+            e("no puede publicar puertos (regla 2)")
+
+        for v in lista(s.get("volumes")):
+            if isinstance(v, dict):
+                tipo, origen = v.get("type"), str(v.get("source", ""))
+            else:
+                origen = str(v).split(":")[0]
+                tipo = "bind" if origen.startswith(("/", ".", "~", "$")) else "volume"
+            if tipo == "tmpfs":
+                continue
+            if tipo != "bind" or ".." in origen or not origen.startswith(datos_dir):
+                e(f"volumen «{origen or v}» fuera de /srv/apps/${{PROYECTO}}/data/ (regla 6)")
+
+        for f in lista(s.get("env_file")):
+            ruta = f.get("path") if isinstance(f, dict) else f
+            if ruta not in env_ok:
+                e(f"env_file «{ruta}» debe ser /srv/apps/${{PROYECTO}}/.env (regla 7)")
+        entorno = s.get("environment") or {}
+        pares = entorno.items() if isinstance(entorno, dict) else (
+            (x.split("=", 1) + [None])[:2] for x in map(str, entorno))
+        for clave, valor in pares:
+            if SECRETO.search(str(clave)) and valor is not None and "${" not in str(valor):
+                e(f"«{clave}» parece un secreto escrito en el compose: va en el .env del VPS (regla 7)")
+
+        for red in (s.get("networks") or []):
+            if red not in redes:
+                e(f"usa la red «{red}», que no está declarada en networks como external")
+
+
+def main(argv):
+    if len(argv) > 1 and argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    if len(argv) not in (3, 4):
+        print(__doc__, file=sys.stderr)
+        return 2
+    p = argv[2]
+    if not re.fullmatch(r"[a-z][a-z0-9-]{1,30}", p):
+        print("Nombre de proyecto no válido (minúsculas, números y -).", file=sys.stderr)
+        return 2
+    errores = []
+    revisar(cargar(argv[1], errores), p, "compose.yml", errores, principal=True)
+    if len(argv) == 4:
+        revisar(cargar(argv[3], errores), p, "servicios.yml", errores, principal=False)
+    if errores:
+        print("vps-check: el proyecto no cumple las reglas del VPS (guia/02-preparar-proyecto.md, 2.2):", file=sys.stderr)
+        for x in errores:
+            print(f"  - {x}", file=sys.stderr)
+        return 1
+    print("vps-check: todo cumple.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

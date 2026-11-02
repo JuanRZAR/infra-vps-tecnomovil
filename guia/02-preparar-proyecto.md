@@ -16,7 +16,7 @@ Qué tiene que tener tu proyecto antes de subirlo. Vale para cualquier lenguaje.
 │     ├─ compose.yml         tu app: imagen, healthcheck (obligatorio)
 │     ├─ servicios.yml       solo si traes servicios con estado propios: otra base, Redis (opcional)
 │     ├─ .env.example        nombres de las variables de producción, sin valores
-│     ├─ nginx/              tus sitios: web.conf y/o api.conf (partiendo de templates/ de infra-vps-tecnomovil)
+│     ├─ nginx/              opcional: solo ajustes extra (p. ej. un location más); el admin los revisa e instala en /etc/nginx/vps-extra/
 │     └─ README.md           qué despliega, qué variables usa, cómo se migra la base
 ├─ .github/workflows/deploy.yml     llama al flujo compartido (GitHub exige esta ruta)
 └─ <tu código>                el Dockerfile va junto al código que construye (p. ej. backend/Dockerfile)
