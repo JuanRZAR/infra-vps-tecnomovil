@@ -18,10 +18,3 @@ dawertech:
   base: postgres
   bd: dawertechbd
 
-# Proyecto de prueba del VPS (paso 11 de la configuración). Vive en ejemplo/ de este repositorio.
-ejemplo:
-  dueno: ochy
-  repo: JuanRZAR/infra-vps-tecnomovil
-  dominios: { web: ejemplo.dawer.cfd, api: ejemplo-api.dawer.cfd }
-  puertos: [8111, 8112]
-  base: ninguna

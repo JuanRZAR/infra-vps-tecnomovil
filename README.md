@@ -27,11 +27,9 @@ Usuarios ─HTTPS─> Cloudflare (tu dominio) ─> VPS: nginx ─┬─> tu web 
 
 | Ruta | Qué es | Estado |
 |---|---|---|
-| `guia/` | La guía | Escrita |
-| `herramientas/vps-check` | Comprueba que tu `compose.yml` cumple las reglas del VPS; lo puedes ejecutar en tu equipo | Pendiente |
-| `templates/` | Plantillas de nginx para tu web y tu API | Pendiente |
-| `ejemplo/` | Proyecto mínimo que sigue la estructura obligatoria | Pendiente |
-| `.github/workflows/deploy.yml` | Flujo de despliegue que llama tu proyecto | Pendiente |
-| `projects.yml` | Registro de proyectos: dueño, dominios y puertos | Pendiente |
+| `guia/` | La guía | Disponible |
+| `herramientas/vps-check` | Comprueba que tu `compose.yml` cumple las reglas del VPS; lo puedes ejecutar en tu equipo (necesita Python 3 con PyYAML) | Disponible |
+| `templates/` | Plantillas de nginx para tu web y tu API | Disponible |
+| `.github/workflows/deploy.yml` | Flujo de despliegue que llama tu proyecto | Disponible |
+| `projects.yml` | Registro de proyectos: dueño, dominios y puertos | Disponible |
 
-Lo marcado como pendiente se publica antes de que subas tu proyecto.

@@ -9,3 +9,4 @@
 *.dump
 *.sql
 id_*
+__pycache__/
