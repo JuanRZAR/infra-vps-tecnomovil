@@ -1,0 +1,221 @@
+# Flujo compartido de los proyectos del VPS (guia/03-subir-proyecto.md, 3.3).
+# Cada proyecto lo llama desde su .github/workflows/deploy.yml con `uses: JuanRZAR/infra-vps-tecnomovil/.github/workflows/deploy.yml@v1`.
+# En un PR: build, hadolint, Trivy, vps-check y prueba de consumo. Con desplegar: true, además sube la imagen y despliega.
+name: vps
+
+on:
+  workflow_call:
+    inputs:
+      proyecto:
+        description: Nombre en projects.yml
+        type: string
+        required: true
+      dockerfile:
+        description: Ruta del Dockerfile (vacío si el proyecto solo tiene web estática)
+        type: string
+        default: ""
+      contexto:
+        description: Carpeta de contexto del build
+        type: string
+        default: "."
+      compose:
+        type: string
+        default: deploy/deploy-produccion/compose.yml
+      servicios:
+        description: Ruta de servicios.yml, si existe
+        type: string
+        default: ""
+      web:
+        description: Nombre del artefacto con la web compilada (vacío si no hay)
+        type: string
+        default: ""
+      puerto_interno:
+        description: Puerto en el que escucha la app dentro del contenedor
+        type: number
+        default: 8000
+      ruta_salud:
+        type: string
+        default: /health
+      ruta_carga:
+        description: Ruta que recibe la carga en la prueba de consumo (por defecto, la de salud)
+        type: string
+        default: ""
+      env_prueba:
+        description: Variables KEY=VALOR (sin secretos) para arrancar la app en la prueba de consumo
+        type: string
+        default: ""
+      url_salud:
+        description: URL pública que se comprueba después de desplegar
+        type: string
+        default: ""
+      desplegar:
+        type: boolean
+        default: false
+    secrets:
+      TS_OAUTH_CLIENT_ID: { required: false }
+      TS_OAUTH_SECRET: { required: false }
+      VPS_SSH_KEY: { required: false }
+      VPS_HOST: { required: false }
+      VPS_KNOWN_HOSTS: { required: false }
+      TELEGRAM_TOKEN: { required: false }
+      TELEGRAM_CHAT_ID: { required: false }
+
+jobs:
+  imagen:
+    if: ${{ inputs.dockerfile != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Herramientas del VPS (vps-check)
+        uses: actions/checkout@v4
+        with:
+          repository: JuanRZAR/infra-vps-tecnomovil
+          ref: v1
+          path: .infra-vps
+
+      - name: Nombre de la imagen
+        id: img
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Reglas del VPS (vps-check)
+        run: |
+          python3 -c "import yaml" 2>/dev/null || sudo apt-get install -y -qq python3-yaml
+          extra=()
+          [ -z "${{ inputs.servicios }}" ] || extra=("${{ inputs.servicios }}")
+          python3 .infra-vps/herramientas/vps-check "${{ inputs.compose }}" "${{ inputs.proyecto }}" "${extra[@]}"
+
+      - name: Lint del Dockerfile (hadolint)
+        run: docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold error - < "${{ inputs.dockerfile }}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build de la imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.contexto }}
+          file: ${{ inputs.dockerfile }}
+          tags: ${{ steps.img.outputs.ref }}
+          load: true
+          cache-from: type=gha,scope=${{ inputs.proyecto }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.proyecto }}
+
+      - name: Vulnerabilidades (Trivy; falla con críticas que tienen solución)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image \
+            --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress "${{ steps.img.outputs.ref }}"
+
+      - name: Prueba de rendimiento y consumo (informa; solo bloquea si la app se cae)
+        env:
+          ENV_PRUEBA: ${{ inputs.env_prueba }}
+          IMG: ${{ steps.img.outputs.ref }}
+          PUERTO: ${{ inputs.puerto_interno }}
+          SALUD: ${{ inputs.ruta_salud }}
+          CARGA: ${{ inputs.ruta_carga || inputs.ruta_salud }}
+        run: |
+          sudo apt-get install -y -qq apache2-utils >/dev/null
+          printf '%s\n' "$ENV_PRUEBA" | grep '=' > env_prueba || true
+          docker run -d --name prueba --env-file env_prueba -p "127.0.0.1:18000:$PUERTO" "$IMG"
+          for i in $(seq 1 45); do
+            curl -fsS -o /dev/null "http://127.0.0.1:18000$SALUD" && break
+            [ "$i" = 45 ] && { docker logs prueba; echo "::error::La app no respondió en $SALUD en 90 s"; exit 1; }
+            sleep 2
+          done
+          mem() { docker stats --no-stream --format '{{.MemUsage}}' prueba | cut -d/ -f1; }
+          reposo=$(mem)
+          ab -q -t 30 -c 10 "http://127.0.0.1:18000$CARGA" > ab.txt || true
+          carga=$(mem)
+          p95=$(awk '/ 95%/ {print $2}' ab.txt)
+          rps=$(awk '/Requests per second/ {print $4}' ab.txt)
+          fallos=$(awk '/Failed requests/ {print $3}' ab.txt)
+          reinicios=$(docker inspect -f '{{.RestartCount}}' prueba)
+          vivo=$(docker inspect -f '{{.State.Running}} oom={{.State.OOMKilled}}' prueba)
+          tam=$(docker image inspect -f '{{.Size}}' "$IMG" | awk '{printf "%.0f MB", $1/1000000}')
+          {
+            echo "### Consumo de ${{ inputs.proyecto }}"
+            echo "| Medida | Valor |"
+            echo "|---|---|"
+            echo "| Memoria en reposo | $reposo |"
+            echo "| Memoria tras 30 s de carga | $carga |"
+            echo "| p95 en $CARGA | ${p95:-?} ms |"
+            echo "| Peticiones por segundo | ${rps:-?} |"
+            echo "| Peticiones fallidas | ${fallos:-?} |"
+            echo "| Tamaño de la imagen | $tam |"
+            echo "| Estado | $vivo, reinicios=$reinicios |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$vivo" != "true oom=false" ] || ! curl -fsS -o /dev/null "http://127.0.0.1:18000$SALUD"; then
+            docker logs --tail 100 prueba
+            echo "::error::La app se cayó o dejó de responder durante la prueba de carga"
+            exit 1
+          fi
+
+      - name: Subir la imagen a GHCR
+        if: ${{ inputs.desplegar }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "${{ steps.img.outputs.ref }}"
+
+  desplegar:
+    needs: imagen
+    if: ${{ !failure() && !cancelled() && inputs.desplegar }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Web compilada
+        if: ${{ inputs.web != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.web }}
+          path: paquete/web
+
+      - name: Paquete para el VPS
+        run: |
+          mkdir -p paquete
+          if [ -n "${{ inputs.dockerfile }}" ]; then cp "${{ inputs.compose }}" paquete/compose.yml; fi
+          if [ -n "${{ inputs.servicios }}" ]; then cp "${{ inputs.servicios }}" paquete/servicios.yml; fi
+          # El VPS descarga la imagen con este token (solo lectura, caduca al terminar el job). Va siempre:
+          # GHCR crea los paquetes nuevos como privados aunque el repositorio sea público.
+          if [ -n "${{ inputs.dockerfile }}" ]; then echo "${{ secrets.GITHUB_TOKEN }}" > paquete/ghcr-token; fi
+          ls -la paquete
+
+      - name: Conectar a Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Desplegar en el VPS
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/ci && chmod 600 ~/.ssh/ci
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cd paquete
+          tar -cf - * | ssh -i ~/.ssh/ci -o BatchMode=yes "deploy@$VPS_HOST" "deploy $GITHUB_SHA"
+
+      - name: Comprobar la URL pública
+        if: ${{ inputs.url_salud != '' }}
+        run: curl -fsS --retry 5 --retry-delay 3 --retry-all-errors -o /dev/null "${{ inputs.url_salud }}"
+
+      - name: Aviso a Telegram si falló
+        if: ${{ failure() }}
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          [ -n "$TOKEN" ] || exit 0
+          curl -fsS "https://api.telegram.org/bot$TOKEN/sendMessage" -d chat_id="$CHAT" \
+            --data-urlencode text="Falló el despliegue de ${{ inputs.proyecto }} (${GITHUB_SHA::7}): ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

@@ -1,0 +1,40 @@
+# Proyecto de prueba del VPS (docs del admin, paso 11). En un PR solo comprueba; se despliega a mano
+# con Actions > ejemplo > Run workflow.
+name: ejemplo
+
+on:
+  pull_request:
+    paths: ["ejemplo/**", ".github/workflows/**", "herramientas/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ejemplo
+  cancel-in-progress: false
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m py_compile ejemplo/app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: ejemplo/web
+
+  vps:
+    needs: pruebas
+    uses: ./.github/workflows/deploy.yml
+    with:
+      proyecto: ejemplo
+      dockerfile: ejemplo/Dockerfile
+      contexto: ejemplo
+      compose: ejemplo/deploy/deploy-produccion/compose.yml
+      web: web
+      url_salud: https://ejemplo-api.dawer.cfd/health
+      desplegar: ${{ github.event_name == 'workflow_dispatch' }}
+    secrets: inherit

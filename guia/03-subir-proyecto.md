@@ -144,7 +144,7 @@ Settings > Rules > Rulesets > New branch ruleset sobre `main`: exigir PR antes d
 |---|---|---|
 | Protección de rama (rulesets) | Funciona | **No se aplica** en cuentas gratuitas (necesita GitHub Pro o una organización). Sin ella, cualquiera con acceso puede hacer push a `main` y desplegar: acuerda no hacerlo o pasa el repo a una organización |
 | Minutos de GitHub Actions | Ilimitados | 2.000 al mes. Una ejecución típica gasta 5-10 minutos |
-| Imagen en GHCR | Pública: el VPS la descarga sin credenciales | Privada: el flujo compartido pasa al VPS un token temporal de solo lectura que se borra al terminar. No hay que guardar nada en el VPS |
+| Imagen en GHCR | En los dos casos el flujo compartido pasa al VPS un token temporal de solo lectura que caduca al terminar el job (GHCR crea los paquetes como privados aunque el repo sea público). No hay que guardar nada en el VPS | Igual |
 | Espacio para imágenes | Gratis | Con cuota: consulta las cifras vigentes en la página de facturación de GitHub y borra imágenes viejas (Settings del paquete > políticas de retención) |
 | Escaneo de secretos y CodeQL | Gratis | Limitado en cuentas gratuitas |
 | Cuidado especial | Todo el código es visible: nada de IP, hosts internos ni secretos. Los PR de forks no reciben secretos (correcto). Nunca uses `pull_request_target` con el código del PR | Que sea privado no autoriza a guardar secretos en él |
