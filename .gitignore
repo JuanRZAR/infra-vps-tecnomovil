@@ -1,0 +1,11 @@
+# Nada sensible entra en este repositorio público
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.dump
+*.sql
+id_*
