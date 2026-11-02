@@ -210,8 +210,14 @@ jobs:
         if: ${{ inputs.url_salud != '' }}
         run: curl -fsS --retry 5 --retry-delay 3 --retry-all-errors -o /dev/null "${{ inputs.url_salud }}"
 
-      - name: Aviso a Telegram si falló
-        if: ${{ failure() }}
+  aviso:
+    needs: [imagen, desplegar]
+    if: ${{ failure() && inputs.desplegar }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Aviso a Telegram (falló un despliegue)
         env:
           TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
