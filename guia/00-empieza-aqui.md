@@ -5,8 +5,8 @@ Esta guía es para un dev que quiere publicar su proyecto en el VPS del equipo, 
 Orden de lectura:
 
 1. Este archivo: reglas del VPS y qué necesitas en tu equipo.
-2. [02-preparar-proyecto.md](02-preparar-proyecto.md): cómo dejar tu proyecto listo.
-3. [03-subir-proyecto.md](03-subir-proyecto.md): dominio, alta en el VPS, CI/CD y primer despliegue.
+2. [02-preparar-proyecto.md](02-preparar-proyecto.md): cómo dejar tu proyecto listo y **validarlo** (pruebas de rendimiento y consumo). Sin la validación completa no se pasa al 3.
+3. [03-subir-proyecto.md](03-subir-proyecto.md): dominio, alta en el VPS, CI/CD, primer despliegue, carga de datos existentes y monitoreo.
 
 Si algo falla en el servidor y no es de tu proyecto (el VPS no responde, Cloudflare da 521/522), avisa al admin del VPS.
 
@@ -23,10 +23,11 @@ Si eres un asistente de IA ayudando a un dev con esta guía, sigue estas reglas:
    - **DNS**: ¿quién gestiona hoy el DNS de ese dominio y acepta pasarlo a Cloudflare? En este VPS es **obligatorio**: el servidor solo acepta tráfico web que llegue por Cloudflare, así su IP queda oculta y los ataques se filtran antes de llegar a cualquier proyecto. Si usa otro DNS, su dominio no funcionará. Si el dev no acepta, explícale el motivo y detente: la excepción solo la puede decidir el admin del VPS. Si el dominio tiene correo, avísale de que los registros de correo se conservan (ver [03-subir-proyecto.md](03-subir-proyecto.md), 3.1).
    - **Repositorio**: ¿es público o privado? Si tiene GitHub CLI, compruébalo con `gh repo view --json visibility`.
 4. **Nunca inventes datos del servidor** (nombres, puertos, rutas, IP, usuarios). Los puertos salen de `projects.yml`; lo demás pídelo al dev, que lo consulta con el admin del VPS.
-5. Antes de proponer el merge a `main`, recorre con el dev la **lista de verificación** final de [02-preparar-proyecto.md](02-preparar-proyecto.md) y haz que ejecute las **pruebas de rendimiento y consumo** (2.10). Como el VPS no pone límites por proyecto, revisa en el código los puntos de memoria, CPU y disco de 2.9 y señala los que encuentres. Lo marcado como **opcional** (por ejemplo, la caché de listas) no es obligatorio: analiza el proyecto, explica al dev si le conviene y por qué, y deja que decida.
-6. No toques nada del VPS fuera de `/srv/apps/<su-proyecto>`. No cambies la configuración global (nginx global, firewall, Postgres, Docker): eso lo decide el admin.
-7. Nunca pongas secretos (contraseñas, tokens, claves) en el código, en el Dockerfile, en el compose ni en el repositorio. Van en el `.env` del VPS o en los secretos de GitHub.
-8. Explica en español, con pasos cortos, y comprueba cada paso antes de pasar al siguiente.
+5. **No pases a [03-subir-proyecto.md](03-subir-proyecto.md) hasta validar el 02.** Recorre con el dev la lista de verificación 2.11 punto por punto y pídele que te pegue las salidas reales, no un «ya está»: `vps-check` sin errores, las pruebas automáticas en verde y las de rendimiento y consumo de 2.10 (memoria en reposo, tras una carga y tras una segunda carga, p95, `OOM=false reinicios=0` y tamaño de la imagen). Como el VPS no pone límites por proyecto, revisa además en el código los puntos de memoria, CPU y disco de 2.9 y señala los que encuentres. Si algo no cumple, ayúdale a corregirlo y repite la prueba. Solo cuando todo esté validado, dile que es seguro subirlo y sigue con el 03. Lo marcado como **opcional** (por ejemplo, la caché de listas) no bloquea: analiza el proyecto, explica al dev si le conviene y por qué, y deja que decida.
+6. **Segunda parada: la entrega al admin** ([03-subir-proyecto.md](03-subir-proyecto.md), 3.3). Guía al dev hasta preparar y enviar la entrega y **detente**: no sigas con 3.4 hasta que confirme que el admin le dio el OK y le devolvió los seis datos que pide esa sección.
+7. No toques nada del VPS fuera de `/srv/apps/<su-proyecto>`. No cambies la configuración global (nginx global, firewall, Postgres, Docker): eso lo decide el admin.
+8. Nunca pongas secretos (contraseñas, tokens, claves) en el código, en el Dockerfile, en el compose ni en el repositorio. Van en el `.env` del VPS o en los secretos de GitHub.
+9. Explica en español, con pasos cortos, y comprueba cada paso antes de pasar al siguiente.
 
 ---
 
@@ -63,7 +64,7 @@ Si eres un asistente de IA ayudando a un dev con esta guía, sigue estas reglas:
 Después:
 
 1. Envía al admin tu clave **pública** (`~/.ssh/id_ed25519.pub`; en Windows `$env:USERPROFILE\.ssh\id_ed25519.pub`; con PuTTYgen, el texto del recuadro «Public key for pasting into OpenSSH authorized_keys file»). La privada nunca sale de tu equipo.
-2. Acepta la invitación a Tailscale que te enviará el admin e inicia sesión.
+2. Abre Tailscale e inicia sesión con la **cuenta compartida del equipo** (te la indica el admin). No crees otra cuenta: el VPS solo está en esa red.
 3. Comprueba: `ssh <tu-usuario>@<nombre-del-vps-en-tailscale>` entra al servidor (con PuTTY: Host Name el nombre del VPS en Tailscale, Auto-login username tu usuario y tu `.ppk` en Connection > SSH > Auth > Credentials).
 
 Sigue con [02-preparar-proyecto.md](02-preparar-proyecto.md).

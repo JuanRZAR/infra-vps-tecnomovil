@@ -208,8 +208,12 @@ Carga corta con [oha](https://github.com/hatoo/oha#installation) contra un endpo
 oha -z 30s -c 20 http://127.0.0.1:8000/<endpoint-de-lectura>
 docker inspect prueba --format 'OOM={{.State.OOMKilled}} reinicios={{.RestartCount}}'
 docker stats prueba --no-stream                                # memoria tras la carga
+oha -z 30s -c 20 http://127.0.0.1:8000/<endpoint-de-lectura>   # segunda carga, igual a la primera
+docker stats prueba --no-stream                                # debe quedar parecida a la anterior
 docker rm -f prueba
 ```
+
+Si tu app usa base de datos, haz la carga contra un endpoint que la consulte: así también se ve si las conexiones vuelven al pool (si la segunda carga da errores o se queda colgada, alguna petición no devuelve su conexión).
 
 Qué mirar:
 - **Memoria**: cuánto usa en reposo y tras la carga, y que no crezca sin parar entre una carga y la siguiente (eso es una fuga).
@@ -221,16 +225,19 @@ Si algo sale mal, optimiza: workers, consultas, índices, imágenes, caché (2.9
 
 GitHub Actions repite esta prueba en cada PR y **te muestra el resultado** (memoria, CPU, p95, tamaño de imagen) en el resumen del job. Solo bloquea el merge si la app se cae o no responde a `/health`. Lo demás es información para que optimices. Después de desplegar, revisa de vez en cuando el consumo real de tu proyecto con `vps-status` y repite la prueba cuando tu app crezca: lo que hoy va bien con 100 registros puede ir mal con 100.000.
 
-## 2.11 Lista de verificación antes del primer merge
+## 2.11 Lista de verificación (sin ella completa no se pasa al 3)
+
+Tu LLM te pedirá la salida real de cada prueba, no un «ya está». Si algo no cumple, se corrige y se repite.
 
 - [ ] Carpetas `deploy/deploy-dev` y `deploy/deploy-produccion` con sus archivos.
-- [ ] `compose.yml` cumple las 8 reglas (2.2); servicios con estado en `servicios.yml`.
+- [ ] `compose.yml` cumple las 8 reglas (2.2); servicios con estado en `servicios.yml`. Compruébalo en tu equipo con `python3 <ruta-a>/infra-vps-tecnomovil/herramientas/vps-check deploy/deploy-produccion/compose.yml <tu-proyecto>` (necesita PyYAML): debe terminar sin errores.
 - [ ] Dockerfile multi-etapa, servidor de producción, `.dockerignore`, sin secretos.
 - [ ] `/health` rápido y sin base de datos.
 - [ ] Variables en `.env.example`; ningún secreto en el repositorio ni en el frontend.
 - [ ] Migraciones compatibles con la versión anterior.
 - [ ] Puntos de memoria, CPU y disco de 2.9 revisados; la caché de listas, evaluada con tu LLM (opcional).
-- [ ] Pruebas de rendimiento y consumo hechas y revisadas (2.10).
+- [ ] Pruebas de rendimiento y consumo hechas y revisadas (2.10): `/health` da 200, sin OOM ni reinicios, la memoria no crece entre la primera y la segunda carga, p95 razonable, imagen de tamaño razonable.
 - [ ] Pruebas automáticas del proyecto en verde.
+- [ ] Sin vulnerabilidades críticas con solución en tus dependencias (GitHub Actions las busca con Trivy en cada PR y bloquea si las hay).
 
-Sigue con [03-subir-proyecto.md](03-subir-proyecto.md).
+Con todo marcado y validado, tu proyecto es seguro para el VPS: sigue con [03-subir-proyecto.md](03-subir-proyecto.md).
