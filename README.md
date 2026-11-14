@@ -29,7 +29,8 @@ Usuarios ─HTTPS─> Cloudflare (tu dominio) ─> VPS: nginx ─┬─> tu web 
 |---|---|---|
 | `guia/` | La guía | Disponible |
 | `herramientas/vps-check` | Comprueba que tu `compose.yml` cumple las reglas del VPS; lo puedes ejecutar en tu equipo (necesita Python 3 con PyYAML) | Disponible |
-| `templates/` | Plantillas de nginx para tu web y tu API | Disponible |
+| `plantillas/` | Plantillas para tu proyecto en cualquier lenguaje: Dockerfile, `.dockerignore`, `deploy-dev/`, `deploy-produccion/` y el workflow. Se adaptan con la tabla de la guía 02 (2.4) | Disponible |
+| `templates/` | Plantillas de nginx para tu web y tu API (las instala el admin) | Disponible |
 | `.github/workflows/deploy.yml` | Flujo de despliegue que llama tu proyecto | Disponible |
 | `projects.yml` | Registro de proyectos: dueño, dominios y puertos | Disponible |
 

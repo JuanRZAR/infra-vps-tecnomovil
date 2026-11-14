@@ -1,0 +1,37 @@
+# Plantilla agnóstica (plantillas/README.md). IMAGE, HOST_PORT y PROYECTO los pone el VPS al desplegar: no los definas.
+# Reglas en guia/02-preparar-proyecto.md, 2.2; compruébalas con herramientas/vps-check.
+services:
+  app:
+    image: ${IMAGE}                                   # FIJO
+    user: "10001:10001"                               # FIJO
+    env_file: /srv/apps/${PROYECTO}/.env              # FIJO
+    ports:
+      - "127.0.0.1:${HOST_PORT}:8000"                 # FIJO: tu app escucha en 8000 dentro del contenedor
+    read_only: true                                   # el sistema de archivos de la imagen no se puede modificar
+    tmpfs: [/tmp]                                     # único sitio escribible además de data/
+    pids_limit: 200
+    restart: unless-stopped                           # FIJO
+    stop_grace_period: 20s
+    security_opt: ["no-new-privileges:true"]          # FIJO
+    cap_drop: [ALL]                                   # FIJO
+    healthcheck:
+      test: <COMANDO_SALUD>                           # tabla 2.4: debe usar una herramienta que exista en tu imagen
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    volumes:                                          # OPCIONAL: solo si guardas archivos
+      - /srv/apps/${PROYECTO}/data/<CARPETA>:/app/<CARPETA>
+    networks: [infra]                                 # infra solo si usas el Postgres compartido
+
+  migrate:                                            # OPCIONAL: se ejecuta una vez antes de cada despliegue
+    profiles: ["migrate"]                             # FIJO si existe migrate
+    image: ${IMAGE}
+    user: "10001:10001"
+    env_file: /srv/apps/${PROYECTO}/.env
+    command: <COMANDO_MIGRACION>                      # tabla 2.4
+    networks: [infra]
+
+networks:
+  infra:
+    external: true                                    # FIJO

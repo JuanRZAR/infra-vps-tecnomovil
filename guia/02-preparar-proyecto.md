@@ -24,6 +24,7 @@ Qué tiene que tener tu proyecto antes de subirlo. Vale para cualquier lenguaje.
 
 - **`deploy-dev`**: sirve para probar en tu equipo la misma imagen que irá a producción. Si tu proyecto usa una base local, puede ir aquí en un contenedor o apuntar a la base que ya tengas.
 - **`deploy-produccion`**: lo único que lee el VPS. El `.env` real **no** está en el repositorio: el admin lo crea en el VPS (`/srv/apps/<tu-proyecto>/.env`).
+- **Punto de partida**: copia los archivos de [`plantillas/`](../plantillas/README.md) (Dockerfile, `.dockerignore`, `deploy-dev/`, `deploy-produccion/` y el workflow) y adapta sus `<MARCADORES>` a tu lenguaje con la tabla de 2.4. Sirven para cualquier lenguaje; no copies archivos de otros proyectos.
 
 ## 2.2 Las reglas del VPS
 
@@ -42,43 +43,13 @@ Qué tiene que tener tu proyecto antes de subirlo. Vale para cualquier lenguaje.
 
 **No hay límites de RAM, CPU ni disco por proyecto.** Cada proyecto consume lo que necesita: uno puede usar 2,5 GB y otro 500 MB. A cambio, cada dev es responsable de que su proyecto consuma lo justo y de vigilarlo antes y después de desplegar (2.9 y 2.10). Los 8 GB de RAM y los 100 GB de disco son de todos: que sobre espacio no es motivo para gastarlo.
 
-## 2.3 Plantilla de `deploy/deploy-produccion/compose.yml`
+## 2.3 `deploy/deploy-produccion/compose.yml`
 
-```yaml
-services:
-  app:
-    image: ${IMAGE}
-    user: "10001:10001"
-    env_file: /srv/apps/${PROYECTO}/.env
-    ports:
-      - "127.0.0.1:${HOST_PORT}:8000"      # tu app escucha en 8000 dentro del contenedor
-    pids_limit: 200
-    restart: unless-stopped
-    stop_grace_period: 20s
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]   # usa una herramienta que exista en tu imagen
-      interval: 15s
-      timeout: 3s
-      retries: 3
-      start_period: 30s
-    volumes:
-      - /srv/apps/${PROYECTO}/data/uploads:/app/uploads   # solo si guardas archivos
-    networks: [infra]
+Copia [`plantillas/deploy-produccion/compose.yml`](../plantillas/deploy-produccion/compose.yml). Ya cumple las 8 reglas: las líneas `# FIJO` no se tocan. Solo rellenas:
 
-  migrate:                                  # opcional: se ejecuta una vez antes de cada despliegue
-    profiles: ["migrate"]
-    image: ${IMAGE}
-    user: "10001:10001"
-    env_file: /srv/apps/${PROYECTO}/.env
-    command: ["<comando de migración>"]     # p. ej. npx prisma migrate deploy, alembic upgrade head
-    networks: [infra]
-
-networks:
-  infra:
-    external: true
-```
+- `<COMANDO_SALUD>`: el healthcheck, con una herramienta que **exista en tu imagen** (tabla de 2.4). Ojo: `python:slim` y las imágenes distroless no traen `wget` ni `curl`.
+- `<COMANDO_MIGRACION>`: si tu base necesita migraciones; si no, borra el servicio `migrate`.
+- `volumes`: solo si guardas archivos; si no, bórralo.
 
 `IMAGE`, `HOST_PORT` y `PROYECTO` los pone el VPS al desplegar; no los definas tú.
 
@@ -104,7 +75,22 @@ Reglas para cualquier lenguaje:
 | .NET | `mcr.microsoft.com/dotnet/aspnet:<versión>` | Kestrel con `ASPNETCORE_URLS=http://+:8000` | Modo `Production` |
 | Frontend con SSR (Next, Nuxt, Remix) | `node:<LTS>-alpine` | el servidor del framework en modo producción (Next: `output: "standalone"`) | Es un contenedor más, con las mismas reglas |
 
-Ejemplo completo (Node):
+### Valores para los marcadores de las plantillas
+
+Comprueba qué trae tu imagen final antes de elegir el healthcheck: `docker run --rm --entrypoint sh <imagen> -c "command -v curl wget"`.
+
+| Tecnología | `<COMANDO_SALUD>` (compose) | `<COMANDO_MIGRACION>` (ejemplos) | `<PASOS_DE_PRUEBA>` (workflow) |
+|---|---|---|---|
+| Node | `["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]` | `["npx", "prisma", "migrate", "deploy"]` | `actions/setup-node` + `npm ci` + `npm test` |
+| Python | `["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]` | `["alembic", "upgrade", "head"]`, `["python", "manage.py", "migrate"]` | `actions/setup-python` + `pip install -r ...` + `pytest` |
+| Java | `["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]` si la imagen trae `curl`; si no, instálalo en la etapa final | Flyway o Liquibase (su comando o un modo de tu jar) | `actions/setup-java` + `./mvnw test` o `./gradlew test` |
+| Go (distroless) | `["CMD", "/app/servidor", "-salud"]`: una opción del propio binario que pide `/health` | `["/app/servidor", "-migrar"]` o la herramienta que uses (goose, migrate) | `actions/setup-go` + `go test ./...` |
+| PHP (FrankenPHP) | `["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]` (compruébalo en tu imagen) | `["php", "artisan", "migrate", "--force"]` | `shivammathur/setup-php` + `composer install` + `php artisan test` |
+| .NET | `aspnet` no trae `curl` ni `wget`: instala `curl` en la etapa final o añade un modo `--salud` a tu app | el bundle de EF (`./efbundle`) | `actions/setup-dotnet` + `dotnet test` |
+
+Si tu tecnología no está, usa el equivalente y explica la elección en `deploy/deploy-produccion/README.md`.
+
+Ejemplo de la plantilla ya adaptada (Node):
 
 ```dockerfile
 FROM node:24-alpine AS build
@@ -120,9 +106,12 @@ ENV NODE_ENV=production PORT=8000
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+USER 10001:10001
 EXPOSE 8000
 CMD ["node", "dist/main.js"]
 ```
+
+Parte de [`plantillas/Dockerfile`](../plantillas/Dockerfile) y [`plantillas/.dockerignore`](../plantillas/.dockerignore).
 
 ## 2.5 Web estática
 

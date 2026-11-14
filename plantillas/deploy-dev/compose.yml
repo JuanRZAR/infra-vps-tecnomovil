@@ -1,0 +1,35 @@
+# Levanta en tu equipo la misma imagen que irá a producción (guia/02-preparar-proyecto.md, 2.1 y 2.10).
+# Uso: docker compose -f deploy/deploy-dev/compose.yml up --build
+# Solo la base: docker compose -f deploy/deploy-dev/compose.yml up -d db
+services:
+  app:
+    build:
+      context: <CONTEXTO_DEL_BUILD>                  # relativo a esta carpeta, p. ej. ../.. o ../../backend
+      dockerfile: Dockerfile
+    user: "10001:10001"                              # igual que en producción
+    read_only: true
+    tmpfs: [/tmp]
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:                                                # OPCIONAL: bórralo si no usas Postgres
+    image: postgres:17                               # misma versión mayor que el Postgres compartido
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app                         # solo para tu equipo; nunca la uses en producción
+    ports:
+      - "127.0.0.1:5433:5432"                        # 5433 para no chocar con un Postgres instalado en tu equipo
+    volumes:
+      - db-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "app"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  db-dev:
