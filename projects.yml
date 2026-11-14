@@ -18,3 +18,11 @@ dawertech:
   base: postgres
   bd: dawertechbd
 
+controlpagos:
+  dueno: ochy
+  repo: gochoag/ControlPagos
+  dominios: { api: controlpagos.cfd }
+  puertos: [8111, 8112]
+  base: postgres
+  salud: /health
+
