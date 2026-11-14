@@ -94,53 +94,10 @@ GitHub > tu repo > Settings > Secrets and variables > Actions, con los datos de 
 
 ### El workflow de tu proyecto
 
-`.github/workflows/deploy.yml`. Tu parte son las pruebas (y compilar la web, si tienes); el flujo compartido hace el resto. Estructura (los nombres exactos de las entradas los define `infra-vps-tecnomovil/.github/workflows/deploy.yml`; consúltalos allí):
+`.github/workflows/deploy.yml`. Copia [`plantillas/github-workflow-deploy.yml`](../plantillas/github-workflow-deploy.yml). Tu parte son las pruebas (`<PASOS_DE_PRUEBA>`, tabla 2.4) y compilar la web, si tienes; el flujo compartido hace el resto. Las entradas opcionales (`web`, `env_prueba`, `puerto_interno`, `ruta_salud`...) están documentadas en [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
 
-```yaml
-name: Desplegar
-on:
-  pull_request:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  packages: write
-
-concurrency:
-  group: desplegar-${{ github.ref }}
-  cancel-in-progress: false
-
-jobs:
-  pruebas:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      # Prepara tu lenguaje (setup-node, setup-python, setup-java...) y ejecuta tus pruebas.
-      # Si tienes web estática: compílala y súbela con actions/upload-artifact como artefacto "web".
-
-  vps:
-    needs: pruebas
-    uses: <cuenta>/infra-vps-tecnomovil/.github/workflows/deploy.yml@v1
-    with:
-      proyecto: <tu-proyecto>
-      dockerfile: <ruta>/Dockerfile
-      contexto: <ruta>
-      web: web                                  # omítelo si no tienes web estática
-      url_salud: https://api.tudominio.com/health
-      desplegar: ${{ github.event_name != 'pull_request' }}
-    secrets:
-      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
-      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-```
-
-Los secretos se pasan uno por uno: `secrets: inherit` no funciona entre repositorios de cuentas distintas.
+- `env_prueba`: si tu app no arranca sin alguna variable (p. ej. `SECRET_KEY`), pásala aquí con un valor de prueba. La prueba de consumo arranca la imagen **sin base de datos ni secretos**: `/health` debe responder igual.
+- Los secretos se pasan uno por uno: `secrets: inherit` no funciona entre repositorios de cuentas distintas.
 
 Qué pasa:
 

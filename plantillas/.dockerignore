@@ -1,0 +1,24 @@
+# Común (FIJO): nada de secretos, historial ni archivos locales dentro de la imagen
+.git
+.github
+.env
+.env.*
+*.log
+deploy/
+**/*.pem
+**/*.key
+*.dump
+*.sql
+
+# Descomenta lo de tu lenguaje (y añade tus carpetas de pruebas y de compilación local)
+# node_modules/
+# dist/
+# .venv/
+# __pycache__/
+# .pytest_cache/
+# target/
+# build/
+# bin/
+# obj/
+# vendor/
+# tests/
