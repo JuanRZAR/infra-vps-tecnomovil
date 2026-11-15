@@ -34,3 +34,10 @@ agendamm:
   base: postgres
   salud: /api/health
 
+ejemplo:                           # TEMPORAL: prueba de servicios internos (guia 2.0); se borra al terminar
+  dueno: ochy
+  repo: gochoag/vps-ejemplo
+  dominios: { api: ejemplo.ochylabs.top }
+  puertos: [8131, 8132]
+  base: ninguna
+
