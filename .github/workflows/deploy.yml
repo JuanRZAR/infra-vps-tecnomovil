@@ -1,6 +1,7 @@
 # Flujo compartido de los proyectos del VPS (guia/03-subir-proyecto.md, 3.3).
 # Cada proyecto lo llama desde su .github/workflows/deploy.yml con `uses: JuanRZAR/infra-vps-tecnomovil/.github/workflows/deploy.yml@v1`.
 # En un PR: build, hadolint, Trivy, vps-check y prueba de consumo. Con desplegar: true, además sube la imagen y despliega.
+# Con «imagenes», hace lo mismo con cada servicio interno (guia/02-preparar-proyecto.md, 2.0).
 name: vps
 
 on:
@@ -23,6 +24,12 @@ on:
         default: deploy/deploy-produccion/compose.yml
       servicios:
         description: Ruta de servicios.yml, si existe
+        type: string
+        default: ""
+      imagenes:
+        description: >-
+          Imágenes de los servicios internos (guia 2.0), una por línea: «nombre dockerfile contexto [ruta_salud]».
+          El servicio usa image: ${IMAGE_<NOMBRE>} (api -> ${IMAGE_API}) y la imagen es ghcr.io/<repo>-<nombre>:<sha>
         type: string
         default: ""
       web:
@@ -80,7 +87,9 @@ jobs:
 
       - name: Nombre de la imagen
         id: img
-        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "base=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Reglas del VPS (vps-check)
         run: |
@@ -153,11 +162,55 @@ jobs:
             exit 1
           fi
 
+      - name: Servicios internos (build, hadolint, Trivy y arranque)
+        if: ${{ inputs.imagenes != '' }}
+        env:
+          IMAGENES: ${{ inputs.imagenes }}
+          BASE: ${{ steps.img.outputs.base }}
+          ENV_PRUEBA: ${{ inputs.env_prueba }}
+        run: |
+          printf '%s\n' "$ENV_PRUEBA" | grep '=' > env_prueba || true
+          echo "### Servicios internos de ${{ inputs.proyecto }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Servicio | Memoria en reposo | Tamaño de la imagen |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          while read -r nombre dockerfile contexto salud; do
+            [ -n "$nombre" ] || continue
+            [[ "$nombre" =~ ^[a-z][a-z0-9-]{0,20}$ ]] || { echo "::error::Nombre de imagen no válido: «$nombre» (minúsculas, números y -)"; exit 1; }
+            [ -n "$contexto" ] || { echo "::error::Falta el contexto de «$nombre»: nombre dockerfile contexto [ruta_salud]"; exit 1; }
+            ref="$BASE-$nombre:$GITHUB_SHA"
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold error - < "$dockerfile"
+            # shortcut: sin caché de buildx para estas imágenes; añadirla si el build tarda demasiado
+            docker build -q -t "$ref" -f "$dockerfile" "$contexto"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 image \
+              --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress "$ref"
+            docker run -d --name "prueba-$nombre" --env-file env_prueba -p 127.0.0.1:18001:8000 "$ref" >/dev/null
+            ok=""
+            for i in $(seq 1 45); do
+              curl -fsS -o /dev/null "http://127.0.0.1:18001${salud:-/health}" && { ok=1; break; }
+              sleep 2
+            done
+            mem=$(docker stats --no-stream --format '{{.MemUsage}}' "prueba-$nombre" | cut -d/ -f1)
+            tam=$(docker image inspect -f '{{.Size}}' "$ref" | awk '{printf "%.0f MB", $1/1000000}')
+            echo "| $nombre | $mem | $tam |" >> "$GITHUB_STEP_SUMMARY"
+            if [ -z "$ok" ]; then
+              docker logs --tail 100 "prueba-$nombre"
+              echo "::error::El servicio $nombre no respondió en ${salud:-/health} en 90 s (sin base de datos ni secretos, como app)"
+              exit 1
+            fi
+            docker rm -f "prueba-$nombre" >/dev/null
+          done <<< "$IMAGENES"
+
       - name: Subir la imagen a GHCR
         if: ${{ inputs.desplegar }}
+        env:
+          IMAGENES: ${{ inputs.imagenes }}
+          BASE: ${{ steps.img.outputs.base }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker push "${{ steps.img.outputs.ref }}"
+          while read -r nombre _; do
+            [ -z "$nombre" ] || docker push "$BASE-$nombre:$GITHUB_SHA"
+          done <<< "$IMAGENES"
 
   desplegar:
     needs: imagen

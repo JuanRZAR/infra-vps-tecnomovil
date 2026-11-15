@@ -100,7 +100,7 @@ GitHub > tu repo > Settings > Secrets and variables > Actions, con los datos de 
 
 ### El workflow de tu proyecto
 
-`.github/workflows/deploy.yml`. Copia [`plantillas/github-workflow-deploy.yml`](../plantillas/github-workflow-deploy.yml). Tu parte son las pruebas (`<PASOS_DE_PRUEBA>`, tabla 2.4) y compilar la web, si tienes; el flujo compartido hace el resto. Las entradas opcionales (`web`, `env_prueba`, `puerto_interno`, `ruta_salud`...) están documentadas en [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
+`.github/workflows/deploy.yml`. Copia [`plantillas/github-workflow-deploy.yml`](../plantillas/github-workflow-deploy.yml). Tu parte son las pruebas (`<PASOS_DE_PRUEBA>`, tabla 2.4) y compilar la web, si tienes; el flujo compartido hace el resto. Las entradas opcionales (`web`, `imagenes`, `env_prueba`, `puerto_interno`, `ruta_salud`...) están documentadas en [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
 
 - `env_prueba`: si tu app no arranca sin alguna variable (p. ej. `SECRET_KEY`), pásala aquí con un valor de prueba. La prueba de consumo arranca la imagen **sin base de datos ni secretos**: `/health` debe responder igual.
 - Los secretos se pasan uno por uno: `secrets: inherit` no funciona entre repositorios de cuentas distintas.

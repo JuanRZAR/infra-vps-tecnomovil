@@ -18,6 +18,7 @@ PROHIBIDAS = [
 ]
 SECRETO = re.compile(r"PASS|SECRET|TOKEN|KEY|CLAVE", re.I)
 PUERTO = re.compile(r"127\.0\.0\.1:\$\{HOST_PORT\}:\d+(/tcp)?")
+IMAGEN_INTERNA = re.compile(r"\$\{IMAGE_[A-Z][A-Z0-9_]*\}")  # servicios internos (guia 2.0)
 
 
 def cargar(ruta, errores):
@@ -74,8 +75,11 @@ def revisar(datos, p, archivo, errores, principal):
                 e(f"security_opt «{opcion}» está prohibido (regla 5)")
 
         if principal:
-            if s.get("image") != "${IMAGE}":
+            imagen = str(s.get("image"))
+            if nombre == "app" and imagen != "${IMAGE}":
                 e("debe usar image: ${IMAGE} (regla 1)")
+            elif imagen != "${IMAGE}" and not IMAGEN_INTERNA.fullmatch(imagen):
+                e("debe usar image: ${IMAGE} o ${IMAGE_<NOMBRE>} (regla 1)")
             if str(s.get("user", "")) != "10001:10001":
                 e('debe tener user: "10001:10001" (regla 4)')
         if nombre == "migrate" and perfiles != ["migrate"]:
@@ -116,7 +120,8 @@ def revisar(datos, p, archivo, errores, principal):
                 e(f"«{clave}» parece un secreto escrito en el compose: va en el .env del VPS (regla 7)")
 
         for red in (s.get("networks") or []):
-            if red not in redes:
+            # default es la red privada de cada versión (azul o verde): une tus servicios entre sí
+            if red not in redes and red != "default":
                 e(f"usa la red «{red}», que no está declarada en networks como external")
 
 
