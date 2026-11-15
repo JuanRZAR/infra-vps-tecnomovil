@@ -4,6 +4,24 @@ Qué tiene que tener tu proyecto antes de subirlo. Vale para cualquier lenguaje.
 
 ---
 
+## 2.0 La forma de tu proyecto
+
+Cada proyecto es distinto. Elige la fila que le corresponde: de ella sale qué registras en `projects.yml` (3.2). Un proyecto es **una sola entrada** en `projects.yml` aunque tenga frontend y backend. En `projects.yml`, `dominios.web` es una web **estática** que sirve nginx, y `dominios.api` es **un dominio que va a un contenedor** (una API o un frontend con SSR).
+
+| Forma | Ejemplo | Registro en `projects.yml` | Puertos |
+|---|---|---|---|
+| Solo API (con app móvil o sin ella) | Flask + APK | `dominios: { api }` | 1 par |
+| Solo web estática | Astro estático, landing | `dominios: { web }`, sin `puertos` | Ninguno |
+| Web estática + API | Angular/Vite/Astro estático + Flask/Node/Rust | `dominios: { web, api }` | 1 par |
+| Frontend con SSR solo | Next que habla directo con la base | `dominios: { api }` | 1 par |
+| Frontend con SSR + API | Astro SSR + Flask/Rust | **En preparación**: un proyecto con dos contenedores. Hasta que esté en esta guía, no lo registres: abre un *issue* (ver abajo) | No aplica |
+
+- **Prefiere la web estática** siempre que puedas: nginx la sirve sin gastar RAM. Usa SSR solo si de verdad necesitas renderizar en el servidor (páginas con sesión o contenido por usuario).
+- **Un proceso por contenedor.** No se meten dos servidores (Astro y Flask) en el mismo contenedor: el healthcheck y el despliegue azul/verde solo vigilan uno.
+- **La app móvil** no se despliega en el VPS: solo necesita la URL pública de la API. Si la distribuyes como APK, puedes publicarla en GitHub Releases desde tu propio workflow.
+- Un subdominio vale como dominio del proyecto (por ejemplo `api.tudominio.com`).
+- **¿Tu proyecto no encaja en ninguna fila?** No improvises una forma ni se lo preguntes al admin por chat: abre un *issue* en `infra-vps-tecnomovil` con la forma del proyecto (lenguajes, qué es público, qué habla con qué). El admin lo resuelve añadiéndolo a esta guía.
+
 ## 2.1 Estructura de carpetas obligatoria
 
 ```
@@ -125,7 +143,7 @@ Si tu frontend compila a archivos estáticos (Angular, React con Vite, Vue, Svel
 ## 2.6 Endpoint `/health`
 
 - Responde `200` rápido (menos de 100 ms) si el proceso puede atender peticiones.
-- **No** hace consultas pesadas. Recomendado: no consultar la base. Si la base cae un momento y `/health` depende de ella, Docker reiniciaría tu app en bucle sin motivo.
+- **No** hace consultas pesadas. Recomendado: no consultar la base **ni llamar a otros servicios** (tu backend, APIs externas). Si la base o ese servicio caen un momento y `/health` depende de ellos, Docker reiniciaría tu app en bucle sin motivo.
 - Sin autenticación y sin datos sensibles en la respuesta.
 
 ## 2.7 Variables de entorno
@@ -144,6 +162,33 @@ Durante unos segundos conviven la versión vieja y la nueva de tu app sobre la *
 - Índices sobre tablas grandes en Postgres: `CREATE INDEX CONCURRENTLY`.
 
 Antes de cada migración el VPS guarda un volcado de tu base.
+
+### Un rol solo para la app (opcional)
+
+Por defecto, la app y `migrate` usan el mismo rol, dueño de la base. Si quieres que la app use un rol con menos permisos (por ejemplo, que solo ejecute funciones), el reparto es este:
+
+- **El admin** crea el rol y le deja conectarse. Lo pides en la entrega (3.3) con el nombre y el límite de conexiones:
+
+  ```sql
+  CREATE ROLE <rol_app> LOGIN PASSWORD '<aleatoria>' CONNECTION LIMIT 10;
+  GRANT CONNECT ON DATABASE <bd> TO <rol_app>;
+  ALTER ROLE <rol_app> SET statement_timeout = '30s';
+  ALTER ROLE <rol_app> SET idle_in_transaction_session_timeout = '60s';
+  ```
+
+- **Tú** pones el resto de permisos en una **migración**, que corre como el dueño. Así se aplican en orden y vuelven solos si hay que recrear la base. Por ejemplo, para un esquema de funciones:
+
+  ```sql
+  GRANT USAGE ON SCHEMA <esquema> TO <rol_app>;
+  GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA <esquema> TO <rol_app>;                -- las que ya existen
+  ALTER DEFAULT PRIVILEGES IN SCHEMA <esquema> GRANT EXECUTE ON FUNCTIONS TO <rol_app>; -- las futuras
+  REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA <esquema> FROM PUBLIC;               -- Postgres da EXECUTE a PUBLIC por defecto
+  ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+  ```
+
+- Cada función `SECURITY DEFINER` lleva `SET search_path = <esquema>, pg_temp`; sin eso, quien la ejecuta puede desviarla a objetos suyos.
+- `app` y `migrate` leen el mismo `.env`: usa **dos variables**, por ejemplo `DATABASE_URL` (rol de la app) y `DATABASE_URL_MIGRACION` (dueño), y que tu comando de migración lea la segunda.
+- La cuenta de conexiones (2.9) se hace contra el límite del rol de la app, no contra 20.
 
 ## 2.9 Lo que suele dañar el VPS sin que nadie lo note
 
