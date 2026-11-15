@@ -30,8 +30,10 @@ Todo proyecto del VPS entra por Cloudflare con **su propio dominio**. Cloudflare
 | A | `www` | Redirige a la web |
 | A | `api` | La API (si la tienes) |
 
+Usa los nombres de tu `projects.yml`; no hace falta que se llamen `@` y `api`. El VPS solo redirige `www` cuando el dominio principal es una web estática (`dominios.web`). Si tu dominio principal va a un contenedor (`dominios.api`), crea la redirección de `www` con una regla de Cloudflare (Rules > Redirect Rules), o no crees el registro `www`.
+
 2. **SSL/TLS** > modo **Full (strict)**; Edge Certificates > **Always Use HTTPS** y TLS mínimo 1.2.
-3. **SSL/TLS > Origin Server** > **Create Certificate** (RSA, `tudominio.com` y `*.tudominio.com`, 15 años). Guarda el certificado y la clave en dos archivos: la clave se muestra una sola vez. Van en la entrega al admin (3.3).
+3. **SSL/TLS > Origin Server** > **Create Certificate** (RSA, `tudominio.com` y `*.tudominio.com`, 15 años). Guarda el certificado y la clave en dos archivos: la clave se muestra una sola vez. Van en la entrega al admin (3.3). El comodín cubre un solo nivel: `api.tudominio.com` sí, `api.app.tudominio.com` no. Si ese dominio ya tiene certificado en el VPS (otro proyecto tuyo con el mismo dominio), no hace falta otro.
 4. **SSL/TLS > Origin Server > Authenticated Origin Pulls**: activado.
 5. **DNS > Settings > DNSSEC**: activar y copiar el registro DS en tu registrador.
 6. **No actives Bot Fight Mode** (Security > Bots). En el plan gratis no admite excepciones y bloquea a quien llama desde centros de datos: la comprobación de salud que hace GitHub Actions tras cada despliegue fallaría y Uptime Kuma marcaría tu web como caída. Contra los intentos de adivinar contraseñas, limita los intentos de inicio de sesión en tu app.
@@ -39,16 +41,17 @@ Todo proyecto del VPS entra por Cloudflare con **su propio dominio**. Cloudflare
 
 ## 3.2 Registra tu proyecto
 
-Abre un PR a `projects.yml` de `infra-vps-tecnomovil` con tu proyecto (el admin lo revisa y lo acepta en 3.3):
+Abre un PR a `projects.yml` de `infra-vps-tecnomovil` con tu proyecto, una sola entrada aunque tenga frontend y backend (el admin lo revisa y lo acepta en 3.3):
 
 ```yaml
 <tu-proyecto>:
   dueno: <tu-usuario-del-vps>
   repo: <cuenta>/<repositorio>
-  dominios: { web: tudominio.com, api: api.tudominio.com }
-  puertos: [81N1, 81N2]        # el admin te asigna N
+  dominios: { web: tudominio.com, api: api.tudominio.com }   # solo los que tengas (2.0)
+  puertos: [81N1, 81N2]        # siguiente N libre en projects.yml; sin contenedor, no lleva puertos
   base: postgres               # postgres | propia | ninguna
   bd: <nombre>                 # opcional: nombre de la base y su usuario (minúsculas, números y _); por defecto, el del proyecto
+  salud: /health               # opcional: ruta de salud, si no es /health
 ```
 
 ## 3.3 Entrega al admin y PARADA
@@ -64,7 +67,10 @@ Abre un PR a `projects.yml` de `infra-vps-tecnomovil` con tu proyecto (el admin 
    - el enlace de tu PR a `projects.yml` (3.2);
    - el certificado Origin y su clave (3.1);
    - la clave **pública** del CI (`ci-<tu-proyecto>.pub`);
-   - los valores del `.env` que solo tú conoces (por ejemplo, claves de servicios externos). La URL de la base y las claves nuevas de la app (`SECRET_KEY` o similares) las genera el admin.
+   - los valores del `.env` que solo tú conoces (por ejemplo, claves de servicios externos o del proveedor de correo). La URL de la base y las claves nuevas de la app (`SECRET_KEY` o similares) las genera el admin;
+   - lo especial, si lo hay, ya decidido y escrito: el rol extra para la app (nombre y límite de conexiones, 2.8), el SQL exacto de una extensión que exija superusuario y la ruta de tus ajustes de nginx (`deploy/deploy-produccion/nginx/`).
+
+   Las dudas sobre el servidor no van aquí: respóndelas con [00-empieza-aqui.md](00-empieza-aqui.md) («Datos fijos del VPS» y «Consultar el VPS»). Lo que la guía no responda va en un *issue* de `infra-vps-tecnomovil`, no en la entrega.
 
 ### Lo que hace el admin (tú no)
 
