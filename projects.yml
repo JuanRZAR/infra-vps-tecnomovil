@@ -26,3 +26,11 @@ controlpagos:
   base: postgres
   salud: /health
 
+agendamm:
+  dueno: ochy
+  repo: gochoag/agenda-mm
+  dominios: { api: agendamm.ochylabs.top }
+  puertos: [8121, 8122]
+  base: postgres
+  salud: /api/health
+
