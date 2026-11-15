@@ -16,6 +16,20 @@ services:
       db:
         condition: service_healthy
 
+  # OPCIONAL: servicio interno (guia 2.0). app lo llama en http://api:8000, igual que en producción.
+  # Sin "ports": en tu equipo tampoco se publica. En app, añade "api" a depends_on.
+  # api:
+  #   build:
+  #     context: <CONTEXTO_DEL_BUILD_DE_API>         # p. ej. ../../backend
+  #     dockerfile: Dockerfile
+  #   user: "10001:10001"
+  #   read_only: true
+  #   tmpfs: [/tmp]
+  #   env_file: .env
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+
   db:                                                # OPCIONAL: bórralo si no usas Postgres
     image: postgres:17                               # misma versión mayor que el Postgres compartido
     environment:
