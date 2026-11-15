@@ -316,6 +316,40 @@ Qué mirar:
 
 Si algo sale mal, optimiza: workers, consultas, índices, imágenes, caché (2.9).
 
+### Si tu proyecto tiene servicios internos (2.0)
+
+Prueba dos cosas: cada imagen **sola**, como la arranca GitHub Actions, y **todas juntas**, como en el VPS.
+
+**1. Cada servicio interno solo, sin base de datos ni secretos.** En `deploy/deploy-dev/prueba.env` pon solo las variables de `env_prueba` del workflow (sin secretos; no lo subas). Así sabes si el CI va a fallar:
+
+```bash
+docker build -t miapi:prueba -f <ruta-api>/Dockerfile <ruta-api>
+docker image ls miapi:prueba                                   # tamaño
+docker run -d --name prueba-api --user 10001:10001 -p 127.0.0.1:8001:8000 \
+  --env-file deploy/deploy-dev/prueba.env miapi:prueba
+curl http://127.0.0.1:8001/health                              # 200; si no arranca, le falta una variable en env_prueba
+docker rm -f prueba-api
+```
+
+Haz lo mismo con la imagen de `app` (en el puerto 8000): su `/health` también debe responder sin el servicio interno.
+
+**2. Todo junto**, con `deploy/deploy-dev/compose.yml` y el servicio interno descomentado de la plantilla. `app` llama a `http://api:8000`, igual que en producción:
+
+```bash
+docker compose -f deploy/deploy-dev/compose.yml up -d --build
+docker compose -f deploy/deploy-dev/compose.yml ps             # todos «running» (o «healthy»)
+docker stats --no-stream                                       # memoria en reposo de cada contenedor
+oha -z 30s -c 20 http://127.0.0.1:8000/<pagina-que-llama-a-la-api>
+docker stats --no-stream                                       # tras la carga
+oha -z 30s -c 20 http://127.0.0.1:8000/<pagina-que-llama-a-la-api>
+docker stats --no-stream                                       # parecida a la anterior en cada contenedor
+docker inspect $(docker compose -f deploy/deploy-dev/compose.yml ps -q) \
+  --format '{{.Name}} OOM={{.State.OOMKilled}} reinicios={{.RestartCount}}'
+docker compose -f deploy/deploy-dev/compose.yml down
+```
+
+Carga una página de `app` que de verdad llame al servicio interno (y este, a la base): así mides la cadena completa. Mira lo mismo que arriba **en cada contenedor**: memoria en reposo y tras dos cargas, reinicios, OOM y tamaño de cada imagen. En el VPS cuentan todos juntos.
+
 GitHub Actions repite esta prueba en cada PR y **te muestra el resultado** (memoria, CPU, p95, tamaño de imagen) en el resumen del job. Solo bloquea el merge si la app se cae o no responde a `/health`. Lo demás es información para que optimices. Después de desplegar, revisa de vez en cuando el consumo real de tu proyecto con `vps-status` y repite la prueba cuando tu app crezca: lo que hoy va bien con 100 registros puede ir mal con 100.000.
 
 ## 2.11 Lista de verificación (sin ella completa no se pasa al 3)
@@ -325,11 +359,12 @@ Tu LLM te pedirá la salida real de cada prueba, no un «ya está». Si algo no 
 - [ ] Carpetas `deploy/deploy-dev` y `deploy/deploy-produccion` con sus archivos.
 - [ ] `compose.yml` cumple las 8 reglas (2.2); servicios con estado en `servicios.yml`. Compruébalo en tu equipo con `python3 <ruta-a>/infra-vps-tecnomovil/herramientas/vps-check deploy/deploy-produccion/compose.yml <tu-proyecto>` (necesita PyYAML): debe terminar sin errores.
 - [ ] Dockerfile multi-etapa, servidor de producción, `.dockerignore`, sin secretos.
-- [ ] `/health` rápido y sin base de datos.
+- [ ] `/health` rápido, sin base de datos y sin llamar a otros servicios, en `app` y en cada servicio interno.
+- [ ] Con servicios internos (2.0): cada imagen arranca **sola** con las variables de `env_prueba` y responde `/health` (2.10, paso 1), y en `deploy-dev` todos los contenedores funcionan juntos (paso 2).
 - [ ] Variables en `.env.example`; ningún secreto en el repositorio ni en el frontend.
 - [ ] Migraciones compatibles con la versión anterior.
 - [ ] Puntos de memoria, CPU y disco de 2.9 revisados; la caché de listas, evaluada con tu LLM (opcional).
-- [ ] Pruebas de rendimiento y consumo hechas y revisadas (2.10): `/health` da 200, sin OOM ni reinicios, la memoria no crece entre la primera y la segunda carga, p95 razonable, imagen de tamaño razonable.
+- [ ] Pruebas de rendimiento y consumo hechas y revisadas (2.10): `/health` da 200, sin OOM ni reinicios, la memoria no crece entre la primera y la segunda carga, p95 razonable, imagen de tamaño razonable. Con servicios internos, en **cada** contenedor.
 - [ ] Pruebas automáticas del proyecto en verde.
 - [ ] Sin vulnerabilidades críticas con solución en tus dependencias (GitHub Actions las busca con Trivy en cada PR y bloquea si las hay).
 
