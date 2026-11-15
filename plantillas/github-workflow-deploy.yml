@@ -43,6 +43,8 @@ jobs:
       dockerfile: <RUTA>/Dockerfile
       contexto: <RUTA>
       # web: web                                    # OPCIONAL: solo si tienes web estática
+      # imagenes: |                                 # OPCIONAL: servicios internos (guia 2.0): nombre dockerfile contexto
+      #   api backend/Dockerfile backend
       # env_prueba: |                               # OPCIONAL: variables SIN secretos para arrancar en la prueba de consumo
       #   SECRET_KEY=prueba-ci
       url_salud: https://<DOMINIO_API>/health

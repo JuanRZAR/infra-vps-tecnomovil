@@ -14,13 +14,72 @@ Cada proyecto es distinto. Elige la fila que le corresponde: de ella sale qué r
 | Solo web estática | Astro estático, landing | `dominios: { web }`, sin `puertos` | Ninguno |
 | Web estática + API | Angular/Vite/Astro estático + Flask/Node/Rust | `dominios: { web, api }` | 1 par |
 | Frontend con SSR solo | Next que habla directo con la base | `dominios: { api }` | 1 par |
-| Frontend con SSR + API | Astro SSR + Flask/Rust | **En preparación**: un proyecto con dos contenedores. Hasta que esté en esta guía, no lo registres: abre un *issue* (ver abajo) | No aplica |
+| Frontend con SSR + API | Astro SSR + Flask/Rust | `dominios: { api }` con el dominio del frontend. El frontend es `app` y la API, un servicio interno (abajo) | 1 par |
 
 - **Prefiere la web estática** siempre que puedas: nginx la sirve sin gastar RAM. Usa SSR solo si de verdad necesitas renderizar en el servidor (páginas con sesión o contenido por usuario).
 - **Un proceso por contenedor.** No se meten dos servidores (Astro y Flask) en el mismo contenedor: el healthcheck y el despliegue azul/verde solo vigilan uno.
 - **La app móvil** no se despliega en el VPS: solo necesita la URL pública de la API. Si la distribuyes como APK, puedes publicarla en GitHub Releases desde tu propio workflow.
 - Un subdominio vale como dominio del proyecto (por ejemplo `api.tudominio.com`).
 - **¿Tu proyecto no encaja en ninguna fila?** No improvises una forma ni se lo preguntes al admin por chat: abre un *issue* en `infra-vps-tecnomovil` con la forma del proyecto (lenguajes, qué es público, qué habla con qué). El admin lo resuelve añadiéndolo a esta guía.
+
+### Varios contenedores en un proyecto (servicios internos)
+
+Para el frontend con SSR + API, o cualquier proyecto con más de un servidor propio en el mismo repositorio (un monorepo con `frontend/` y `backend/` vale):
+
+- **`app` es el único contenedor público**: recibe el tráfico de nginx en su puerto y usa `image: ${IMAGE}`. Si el navegador necesita la API, `app` se la reenvía (por ejemplo, una ruta `/api/...` en el frontend que llama al backend).
+- **Cada servicio interno** usa su propia imagen `${IMAGE_<NOMBRE>}` (`api` → `${IMAGE_API}`), no publica puertos y escucha en `8000`. Cumple las mismas reglas que `app` (usuario `10001`, `env_file`, `restart`) y debe tener `healthcheck`: el despliegue espera a que todos estén sanos antes de pasarles tráfico.
+- **Se hablan por el nombre del servicio**, en la red `default` de su versión: `app` llama a `http://api:8000`. Cada versión (azul y verde) tiene su red `default` propia, así que el frontend nuevo siempre habla con el backend nuevo. Nunca llames a `127.0.0.1` (es el propio contenedor) ni a `81N1`/`81N2`.
+- Quien necesita el Postgres compartido se une también a `infra`. Al declarar `networks:` en un servicio, incluye `default` o dejará de ver a los demás.
+- `migrate` usa la imagen que tiene tus migraciones (normalmente `${IMAGE_API}`).
+- `/health` de `app` **no** llama al servicio interno (2.6).
+- La IP real del usuario llega a `app` en `X-Real-IP`. Si el servicio interno la necesita, `app` debe reenviarla en esa misma cabecera.
+
+```yaml
+# deploy/deploy-produccion/compose.yml (frontend con SSR + API)
+services:
+  app:                                  # frontend: lo de la plantilla, sin networks (solo default)
+    image: ${IMAGE}
+    # ...user, env_file, ports, restart, healthcheck de la plantilla...
+  api:                                  # backend interno
+    image: ${IMAGE_API}
+    user: "10001:10001"
+    env_file: /srv/apps/${PROYECTO}/.env
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: <COMANDO_SALUD>             # contra http://127.0.0.1:8000/health dentro de su contenedor
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    networks: [default, infra]          # default: habla con app; infra: Postgres
+  migrate:
+    profiles: ["migrate"]
+    image: ${IMAGE_API}
+    user: "10001:10001"
+    env_file: /srv/apps/${PROYECTO}/.env
+    command: <COMANDO_MIGRACION>
+    networks: [infra]
+networks:
+  infra:
+    external: true
+```
+
+Y en tu workflow, el flujo compartido construye cada imagen interna con la entrada `imagenes`, una línea por servicio (`nombre dockerfile contexto [ruta_salud]`):
+
+```yaml
+    with:
+      proyecto: <tu-proyecto>
+      dockerfile: frontend/Dockerfile   # la de app
+      contexto: frontend
+      imagenes: |
+        api backend/Dockerfile backend
+```
+
+Cada imagen interna pasa por hadolint y Trivy, y se arranca sola en la prueba de consumo (sin base de datos ni secretos, con `env_prueba`): su `/health` debe responder igual que el de `app`. La imagen se publica como `ghcr.io/<repo>-<nombre>:<sha>`. Las variables de todos los servicios van en el mismo `.env` del VPS.
 
 ## 2.1 Estructura de carpetas obligatoria
 
@@ -50,14 +109,14 @@ Cada proyecto es distinto. Elige la fila que le corresponde: de ella sale qué r
 
 | N.º | Regla | Por qué |
 |---|---|---|
-| 1 | El servicio principal del `compose.yml` se llama `app` y usa `image: ${IMAGE}` (sin `build:`) | El VPS no compila: descarga la imagen ya construida por GitHub Actions |
+| 1 | El servicio principal del `compose.yml` se llama `app` y usa `image: ${IMAGE}` (sin `build:`). Los servicios internos usan `${IMAGE_<NOMBRE>}` (2.0) | El VPS no compila: descarga las imágenes ya construidas por GitHub Actions |
 | 2 | Único puerto permitido: `"127.0.0.1:${HOST_PORT}:<puerto interno>"` | Nada queda expuesto a Internet saltándose nginx y el firewall |
 | 3 | `app` tiene `healthcheck` y `restart: unless-stopped` | Sin healthcheck, el despliegue no sabe si la versión nueva funciona |
 | 4 | El contenedor corre como `user: "10001:10001"` | Si alguien explota tu app, no es root |
 | 5 | Prohibido: `privileged`, `network_mode: host`, `pid: host`, `cap_add`, `devices`, montar `docker.sock` | Cualquiera de ellos da control del servidor entero |
 | 6 | Volúmenes solo dentro de `/srv/apps/${PROYECTO}/data/` | No se toca nada fuera de tu carpeta |
 | 7 | Variables con `env_file: /srv/apps/${PROYECTO}/.env`; nada de secretos escritos en el compose | Los secretos no viajan en el repositorio |
-| 8 | Redes: `infra` (solo si usas el Postgres compartido) y `${PROYECTO}-red` (para tus servicios propios) | Tu Redis o tu base no quedan al alcance de otros proyectos |
+| 8 | Redes: `infra` (solo si usas el Postgres compartido), `default` (entre `app` y tus servicios internos, 2.0) y `${PROYECTO}-red` (para tus servicios de `servicios.yml`) | Tu Redis o tu base no quedan al alcance de otros proyectos |
 
 **No hay límites de RAM, CPU ni disco por proyecto.** Cada proyecto consume lo que necesita: uno puede usar 2,5 GB y otro 500 MB. A cambio, cada dev es responsable de que su proyecto consuma lo justo y de vigilarlo antes y después de desplegar (2.9 y 2.10). Los 8 GB de RAM y los 100 GB de disco son de todos: que sobre espacio no es motivo para gastarlo.
 

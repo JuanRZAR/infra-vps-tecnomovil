@@ -24,6 +24,8 @@ services:
       - /srv/apps/${PROYECTO}/data/<CARPETA>:/app/<CARPETA>
     networks: [infra]                                 # infra solo si usas el Postgres compartido
 
+  # OPCIONAL: servicios internos (backend de un frontend con SSR...): ver guia/02-preparar-proyecto.md, 2.0
+
   migrate:                                            # OPCIONAL: se ejecuta una vez antes de cada despliegue
     profiles: ["migrate"]                             # FIJO si existe migrate
     image: ${IMAGE}
