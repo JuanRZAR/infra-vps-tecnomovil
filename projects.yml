@@ -34,3 +34,9 @@ agendamm:
   base: postgres
   salud: /api/health
 
+beront:
+  dueno: juan
+  repo: JuanRZAR/beront-project
+  dominios: { api: beront.com }
+  puertos: [8131, 8132]
+  base: postgres
